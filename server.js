@@ -211,6 +211,14 @@ app.post('/api/status', async (req, res) => {
     }
 });
 
+
+app.get("/", (req, res) => {
+    res.json({
+        success: true,
+        message: "Cybertey Payment Server Running",
+        status: "online"
+    });
+});
 app.listen(PORT, () => {
     const config = getPhonePeConfig();
     console.log(`✅ Server running on port ${PORT}`);
