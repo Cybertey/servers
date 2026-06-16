@@ -28,11 +28,18 @@ const getPhonePeConfig = () => {
     } catch (err) {
         console.warn('Could not read config file, using .env fallback:', err.message);
     }
-    // Fallback to .env
+    
+    // Support both naming conventions
+    // Vercel: CLIENT_ID, CLIENT_SECRET, CLIENT_VERSION
+    // Or: PHONEPE_MERCHANT_ID, PHONEPE_SALT_KEY, PHONEPE_SALT_INDEX
+    const merchantId = process.env.PHONEPE_CLIENT_ID || process.env.PHONEPE_MERCHANT_ID;
+    const saltKey = process.env.PHONEPE_CLIENT_SECRET || process.env.PHONEPE_SALT_KEY;
+    const saltIndex = process.env.PHONEPE_CLIENT_VERSION || process.env.PHONEPE_SALT_INDEX || '1';
+    
     return {
-        merchantId: process.env.PHONEPE_MERCHANT_ID,
-        saltKey: process.env.PHONEPE_SALT_KEY,
-        saltIndex: process.env.PHONEPE_SALT_INDEX || '1',
+        merchantId: merchantId,
+        saltKey: saltKey,
+        saltIndex: saltIndex,
         apiUrl: process.env.PHONEPE_PAY_URL,
         frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
     };
@@ -211,14 +218,6 @@ app.post('/api/status', async (req, res) => {
     }
 });
 
-
-app.get("/", (req, res) => {
-    res.json({
-        success: true,
-        message: "Cybertey Payment Server Running",
-        status: "online"
-    });
-});
 app.listen(PORT, () => {
     const config = getPhonePeConfig();
     console.log(`✅ Server running on port ${PORT}`);
