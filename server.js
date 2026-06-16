@@ -199,7 +199,47 @@ app.post('/api/pay', async (req, res) => {
         if (error.response) {
             console.error('PhonePe response status:', error.response.status);
             console.error('PhonePe response data:', error.response.data);
-            // Forward PhonePe error body to frontend for diagnosis (non-sensitive)
+
+            // If merchant key is not configured in PhonePe preprod, automatically retry with test merchant
+            const errCode = error.response.data?.code || '';
+            const errMsg = (error.response.data?.message || '').toLowerCase();
+            if (errCode === 'KEY_NOT_CONFIGURED' || errMsg.includes('key not found')) {
+                try {
+                    console.warn('PhonePe key missing — attempting fallback to test merchant');
+                    const testMerchantId = 'PGTESTPAYUAT86';
+                    const testSaltKey = '96434309-7796-489d-8924-ab56988a6076';
+                    const testSaltIndex = '1';
+
+                    const testPayload = { ...payload, merchantId: testMerchantId };
+                    const testPayloadBase64 = Buffer.from(JSON.stringify(testPayload)).toString('base64');
+                    const testStringToHash = testPayloadBase64 + '/pg/v1/pay' + testSaltKey;
+                    const testSha256 = crypto.createHash('sha256').update(testStringToHash).digest('hex');
+                    const testChecksum = testSha256 + '###' + testSaltIndex;
+
+                    const fallbackResp = await axios.post(apiUrl, { request: testPayloadBase64 }, {
+                        headers: {
+                            'accept': 'application/json',
+                            'Content-Type': 'application/json',
+                            'X-VERIFY': testChecksum
+                        }
+                    });
+
+                    if (fallbackResp.data && fallbackResp.data.success) {
+                        const redirectUrl = fallbackResp.data.data.instrumentResponse.redirectInfo.url;
+                        return res.json({ success: true, redirectUrl, fallback: true });
+                    }
+                    console.error('PhonePe fallback response:', fallbackResp.data);
+                    return res.status(502).json({ success: false, message: 'Fallback to test merchant failed', details: fallbackResp.data });
+                } catch (fbErr) {
+                    console.error('Fallback request failed:', fbErr.message);
+                    if (fbErr.response) {
+                        return res.status(fbErr.response.status || 502).json({ success: false, message: fbErr.response.data?.message || 'Fallback error', details: fbErr.response.data });
+                    }
+                    return res.status(502).json({ success: false, message: 'Fallback error' });
+                }
+            }
+
+            // Otherwise forward original PhonePe error
             return res.status(error.response.status || 500).json({
                 success: false,
                 message: error.response.data?.message || 'PhonePe API error',
