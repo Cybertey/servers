@@ -32,16 +32,25 @@ const getPhonePeConfig = () => {
     // Support both naming conventions
     // Vercel: CLIENT_ID, CLIENT_SECRET, CLIENT_VERSION
     // Or: PHONEPE_MERCHANT_ID, PHONEPE_SALT_KEY, PHONEPE_SALT_INDEX
-    const merchantId = process.env.PHONEPE_CLIENT_ID || process.env.PHONEPE_MERCHANT_ID;
-    const saltKey = process.env.PHONEPE_CLIENT_SECRET || process.env.PHONEPE_SALT_KEY;
-    const saltIndex = process.env.PHONEPE_CLIENT_VERSION || process.env.PHONEPE_SALT_INDEX || '1';
+    let merchantId = process.env.PHONEPE_CLIENT_ID || process.env.PHONEPE_MERCHANT_ID;
+    let saltKey = process.env.PHONEPE_CLIENT_SECRET || process.env.PHONEPE_SALT_KEY;
+    let saltIndex = process.env.PHONEPE_CLIENT_VERSION || process.env.PHONEPE_SALT_INDEX || '1';
+
+    // Optional: Force use of known test merchant for quick verification
+    // Set FORCE_TEST_MERCHANT=1 in environment to enable
+    if (process.env.FORCE_TEST_MERCHANT === '1') {
+        merchantId = 'PGTESTPAYUAT86';
+        saltKey = '96434309-7796-489d-8924-ab56988a6076';
+        saltIndex = '1';
+        console.warn('⚠️ FORCE_TEST_MERCHANT enabled - using PhonePe test merchant');
+    }
     
     return {
         merchantId: merchantId,
         saltKey: saltKey,
         saltIndex: saltIndex,
-        apiUrl: process.env.PHONEPE_PAY_URL,
-        frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
+        apiUrl: process.env.PHONEPE_PAY_URL || 'https://api-preprod.phonepe.com/apis/hermes/pg/v1/pay',
+        frontendUrl: process.env.FRONTEND_URL || 'https://servers-taupe.vercel.app',
     };
 };
 
@@ -163,6 +172,8 @@ app.post('/api/pay', async (req, res) => {
             paymentInstrument: { type: 'PAY_PAGE' }
         };
 
+        console.log('💳 PhonePe Pay Request:', { merchantId: merchantId.substring(0, 8) + '****', apiUrl, saltIndex });
+
         const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString('base64');
         const stringToHash = payloadBase64 + '/pg/v1/pay' + saltKey;
         const sha256 = crypto.createHash('sha256').update(stringToHash).digest('hex');
@@ -185,7 +196,16 @@ app.post('/api/pay', async (req, res) => {
         }
     } catch (error) {
         console.error('PhonePe API call failed:', error.message);
-        if (error.response) console.error('PhonePe response data:', error.response.data);
+        if (error.response) {
+            console.error('PhonePe response status:', error.response.status);
+            console.error('PhonePe response data:', error.response.data);
+            // Forward PhonePe error body to frontend for diagnosis (non-sensitive)
+            return res.status(error.response.status || 500).json({
+                success: false,
+                message: error.response.data?.message || 'PhonePe API error',
+                details: error.response.data
+            });
+        }
         res.status(500).json({ success: false, message: 'Server error during payment initiation' });
     }
 });
@@ -222,5 +242,8 @@ app.listen(PORT, () => {
     const config = getPhonePeConfig();
     console.log(`✅ Server running on port ${PORT}`);
     console.log(`💳 PhonePe config source: ${fs.existsSync(CONFIG_FILE) ? 'Admin Panel (phonepe-config.json)' : '.env file'}`);
-    console.log(`🔑 Merchant ID: ${config.merchantId || 'NOT SET'}`);
+    console.log(`🔑 Merchant ID: ${config.merchantId ? config.merchantId.substring(0, 8) + '****' : 'NOT SET'}`);
+    console.log(`🔐 Salt Index: ${config.saltIndex}`);
+    console.log(`📡 API URL: ${config.apiUrl}`);
+    console.log(`🌐 Frontend URL: ${config.frontendUrl}`);
 });
